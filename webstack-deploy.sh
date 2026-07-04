@@ -20,7 +20,7 @@ set -Eeuo pipefail
 #
 # Optional:
 #   WEBROOT=/var/www/example.com bash webstack-deploy.sh
-#   SWAP_SIZE=1G SWAPFILE=/swapfile SWAPPINESS=10 bash webstack-deploy.sh
+#   SWAP_SIZE=1024 SWAPFILE=/swapfile SWAPPINESS=10 bash webstack-deploy.sh
 #   REQUIRE_DNS_MATCH=1 bash webstack-deploy.sh
 #   RUN_RENEW_DRY_RUN=1 bash webstack-deploy.sh
 #
@@ -36,6 +36,7 @@ CREATE_SWAP="${CREATE_SWAP:-}"
 SWAP_SIZE="${SWAP_SIZE:-}"
 SWAPFILE="${SWAPFILE:-/swapfile}"
 SWAPPINESS="${SWAPPINESS:-10}"
+DEFAULT_SWAP_MB="${DEFAULT_SWAP_MB:-1024}"
 ENABLE_FAIL2BAN="${ENABLE_FAIL2BAN:-}"
 ADD_FIRST_SITE="${ADD_FIRST_SITE:-auto}"
 ASSUME_YES="${ASSUME_YES:-0}"
@@ -279,29 +280,18 @@ recommend_swap_mb() {
 
 normalize_swap_size_input() {
   local raw="$1"
-  local value
   raw="$(to_lower "$raw")"
 
   case "${raw}" in
-    0|0m|0g)
+    0)
       printf '0'
-      ;;
-    [0-9]*m)
-      value="${raw%m}"
-      [[ "${value}" =~ ^[0-9]+$ ]] || die "Swap 大小无效：${raw}"
-      printf '%sM' "${value}"
-      ;;
-    [0-9]*g)
-      value="${raw%g}"
-      [[ "${value}" =~ ^[0-9]+$ ]] || die "Swap 大小无效：${raw}"
-      printf '%sG' "${value}"
       ;;
     [0-9]*)
       [[ "${raw}" =~ ^[0-9]+$ ]] || die "Swap 大小无效：${raw}"
       printf '%sM' "${raw}"
       ;;
     *)
-      die "Swap 大小无效：${raw}。请输入 0、512M、1024M 或 1G。"
+      die "Swap 大小无效：${raw}。请输入 MB 数值，例如 0、512 或 1024。"
       ;;
   esac
 }
@@ -315,8 +305,8 @@ validate_swap_settings() {
     die "SWAPFILE must be an absolute path without spaces. Current value: ${SWAPFILE}"
   fi
 
-  if [[ ! "${SWAP_SIZE}" =~ ^[0-9]+[MmGg]$ ]]; then
-    die "SWAP_SIZE must use M or G, for example 1024M or 1G. Current value: ${SWAP_SIZE}"
+  if [[ ! "${SWAP_SIZE}" =~ ^[0-9]+[Mm]$ ]]; then
+    die "Internal SWAP_SIZE must be normalized with an MB suffix. Current value: ${SWAP_SIZE}"
   fi
 
   if [[ ! "${SWAPPINESS}" =~ ^[0-9]+$ || "${SWAPPINESS}" -gt 100 ]]; then
@@ -342,11 +332,11 @@ collect_swap_choice() {
       if [[ -z "${SWAP_SIZE}" && "${RECOMMENDED_SWAP_MB}" -gt 0 ]]; then
         SWAP_SIZE="${RECOMMENDED_SWAP_MB}M"
       elif [[ -z "${SWAP_SIZE}" ]]; then
-        SWAP_SIZE="1024M"
+        SWAP_SIZE="${DEFAULT_SWAP_MB}M"
       else
         SWAP_SIZE="$(normalize_swap_size_input "${SWAP_SIZE}")"
       fi
-      SWAP_SUMMARY="准备创建 ${SWAP_SIZE}，路径 ${SWAPFILE}，swappiness ${SWAPPINESS}"
+      SWAP_SUMMARY="准备创建 $(swap_size_to_mb "${SWAP_SIZE}") MB，路径 ${SWAPFILE}，swappiness ${SWAPPINESS}"
     else
       SWAP_SUMMARY="不创建 swap"
     fi
@@ -363,7 +353,7 @@ collect_swap_choice() {
     fi
     CREATE_SWAP="1"
     SWAP_SIZE="${normalized_size}"
-    SWAP_SUMMARY="准备创建 ${SWAP_SIZE}，路径 ${SWAPFILE}，swappiness ${SWAPPINESS}"
+    SWAP_SUMMARY="准备创建 $(swap_size_to_mb "${SWAP_SIZE}") MB，路径 ${SWAPFILE}，swappiness ${SWAPPINESS}"
     validate_swap_settings
     return 0
   fi
@@ -380,7 +370,7 @@ collect_swap_choice() {
 检测到当前没有 active swap
 建议创建 Swap：${RECOMMENDED_SWAP_MB} MB
 EOF
-    choice="$(prompt_value "请输入 Swap 大小，直接回车使用建议值，输入 0 表示不创建" "${RECOMMENDED_SWAP_MB}")"
+    choice="$(prompt_value "请输入 Swap 大小（单位：MB，直接回车使用建议值/默认值，输入 0 表示不创建）" "${RECOMMENDED_SWAP_MB}")"
   else
     choice="${RECOMMENDED_SWAP_MB}"
   fi
@@ -393,7 +383,7 @@ EOF
   else
     CREATE_SWAP="1"
     SWAP_SIZE="${normalized_size}"
-    SWAP_SUMMARY="准备创建 ${SWAP_SIZE}，路径 ${SWAPFILE}，swappiness ${SWAPPINESS}"
+    SWAP_SUMMARY="准备创建 $(swap_size_to_mb "${SWAP_SIZE}") MB，路径 ${SWAPFILE}，swappiness ${SWAPPINESS}"
   fi
 
   validate_swap_settings
@@ -679,12 +669,11 @@ install_base_packages() {
 
 swap_size_to_mb() {
   local raw="$1"
-  local number="${raw%[MmGg]}"
+  local number="${raw%[Mm]}"
   local unit="${raw: -1}"
 
   case "$(to_lower "${unit}")" in
     m) printf '%s' "${number}" ;;
-    g) printf '%s' "$((number * 1024))" ;;
     *) die "Unsupported SWAP_SIZE unit: ${raw}" ;;
   esac
 }
@@ -722,7 +711,7 @@ configure_swap() {
     die "${SWAPFILE} already exists but no active swap was detected. Inspect it manually or set SWAPFILE to another path."
   fi
 
-  log "Creating ${SWAP_SIZE} swap file at ${SWAPFILE}..."
+  log "Creating $(swap_size_to_mb "${SWAP_SIZE}") MB swap file at ${SWAPFILE}..."
   allocate_swapfile
   chmod 0600 "${SWAPFILE}"
   mkswap "${SWAPFILE}"
@@ -737,7 +726,7 @@ vm.swappiness = ${SWAPPINESS}
 EOF
   sysctl -w "vm.swappiness=${SWAPPINESS}" >/dev/null || warn "Could not apply swappiness immediately; it is still written for reboot."
 
-  SWAP_SUMMARY="created ${SWAP_SIZE} at ${SWAPFILE}, swappiness ${SWAPPINESS}"
+  SWAP_SUMMARY="created $(swap_size_to_mb "${SWAP_SIZE}") MB at ${SWAPFILE}, swappiness ${SWAPPINESS}"
 }
 
 add_sury_php_repo() {
@@ -871,7 +860,7 @@ tune_php_for_small_vps() {
 
   [[ -f "${pool_file}" ]] || die "PHP-FPM pool file not found: ${pool_file}"
 
-  log "Applying low-memory PHP-FPM settings for a 1GB VPS..."
+  log "Applying low-memory PHP-FPM settings for a 1024 MB VPS..."
   set_pool_value "${pool_file}" "pm" "ondemand"
   set_pool_value "${pool_file}" "pm.max_children" "3"
   set_pool_value "${pool_file}" "pm.process_idle_timeout" "10s"
