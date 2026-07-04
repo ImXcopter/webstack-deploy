@@ -144,19 +144,35 @@ prompt_yes_no() {
   local prompt="$1"
   local default_value="$2"
   local answer
+  local default_answer
   local normalized
+  local prompt_choices
+
+  case "$(to_lower "${default_value}")" in
+    y|yes|1|true)
+      default_answer="y"
+      prompt_choices="Y/n"
+      ;;
+    n|no|0|false)
+      default_answer="n"
+      prompt_choices="y/N"
+      ;;
+    *)
+      die "Invalid yes/no default value: ${default_value}"
+      ;;
+  esac
 
   if ! is_interactive; then
-    printf '%s' "${default_value}"
+    printf '%s' "${default_answer}"
     return 0
   fi
 
   while true; do
-    printf '%s [%s]: ' "${prompt}" "${default_value}" > /dev/tty
+    printf '%s [%s]: ' "${prompt}" "${prompt_choices}" > /dev/tty
     if ! IFS= read -r answer < /dev/tty; then
       die "Could not read interactive input from /dev/tty."
     fi
-    answer="${answer:-$default_value}"
+    answer="${answer:-$default_answer}"
     normalized="$(to_lower "$answer")"
     case "$normalized" in
       y|yes|1|true) printf 'y'; return 0 ;;
@@ -573,7 +589,7 @@ collect_add_site_settings() {
 
   if [[ -z "${INSTALL_PHP}" ]]; then
     mark_prompted
-    install_choice="$(prompt_yes_no "是否为这个网站启用 PHP 8.x?" "n")"
+    install_choice="$(prompt_yes_no "是否为这个网站启用 PHP 8.x?" "Y")"
   else
     install_choice="${INSTALL_PHP}"
   fi
