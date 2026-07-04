@@ -115,11 +115,11 @@ deploy
 
 如果没有 active swap，脚本会根据硬件给出建议值：
 
-- 内存 <= 1GB：建议 1024MB
-- 内存 1GB 到 2GB：建议 1024MB
-- 内存 2GB 到 4GB：建议 512MB
-- 内存 > 4GB：默认建议 0，不创建
-- 根分区可用空间 < 3GB：默认建议 0，并避免占用磁盘
+- 内存 <= 1024 MB：建议 1024 MB
+- 内存 1024 MB 到 2048 MB：建议 1024 MB
+- 内存 2048 MB 到 4096 MB：建议 512 MB
+- 内存 > 4096 MB：默认建议 0，不创建
+- 根分区可用空间 < 3072 MB：默认建议 0，并避免占用磁盘
 
 交互示例：
 
@@ -128,15 +128,16 @@ deploy
 检测到磁盘可用空间：28000 MB
 检测到当前没有 active swap
 建议创建 Swap：1024 MB
-请输入 Swap 大小，直接回车使用建议值，输入 0 表示不创建 [1024]:
+请输入 Swap 大小（单位：MB，直接回车使用建议值/默认值，输入 0 表示不创建）[1024]:
 ```
 
 可以输入：
 
 - `0`：不创建
-- `512`：创建 512MB
-- `1024M`：创建 1024MB
-- `1G`：创建 1GB
+- `512`：创建 512 MB
+- `1024`：创建 1024 MB
+
+方括号中的 `1024` 是脚本根据当前系统检测结果给出的建议值，也是直接回车时会使用的默认值；单位是 MB。
 
 创建后会写入 `/etc/fstab`，重启后自动启用，并设置：
 
@@ -154,7 +155,7 @@ vm.swappiness = 10
 - 自动检测最新可用的 `php8.*-fpm`
 - 安装 PHP 运行环境和常用非数据库扩展
 - 如果某个扩展包不存在，例如独立 `php8.5-opcache` 不存在，则跳过；OPcache 可能已随核心包提供
-- 对 1GB 内存 VPS 应用低内存 PHP 配置
+- 对 1024 MB 内存 VPS 应用低内存 PHP 配置
 
 脚本仍然不会安装任何 MySQL/MariaDB 模块。
 
@@ -214,7 +215,7 @@ DOMAIN=example.com LE_EMAIL=admin@example.com INSTALL_PHP=1 ENABLE_FAIL2BAN=1 AS
 指定 Swap：
 
 ```bash
-DOMAIN=example.com LE_EMAIL=admin@example.com INSTALL_PHP=1 SWAP_SIZE=1G ASSUME_YES=1 bash webstack-deploy.sh
+DOMAIN=example.com LE_EMAIL=admin@example.com INSTALL_PHP=1 SWAP_SIZE=1024 ASSUME_YES=1 bash webstack-deploy.sh
 ```
 
 只初始化系统，不添加网站：
